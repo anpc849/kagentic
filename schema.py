@@ -14,9 +14,9 @@ Key trick (same as complemon/agent/schemas.py):
 Solution: nest ToolCall inside AgentReActStep so $defs is always present,
 exactly like complemon's AgentResponse + ToolCall design.
 """
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ToolCall(BaseModel):
@@ -35,6 +35,23 @@ class ToolCall(BaseModel):
             'For \'final_answer\', use: {"answer": "<your complete answer>"}.'
         ),
     )
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def _coerce_arguments(cls, v: Any) -> Any:
+        """Auto-serialize dict/list arguments to a JSON string.
+
+        Some weaker LLMs emit ``arguments`` as a native JSON object
+        (dict) instead of a JSON-encoded string, triggering a Pydantic
+        ``string_type`` error.  This validator silently converts the
+        dict to a compact JSON string so parsing succeeds without a
+        retry.
+        """
+        import json as _json
+        if isinstance(v, (dict, list)):
+            return _json.dumps(v)
+        return v
+
 
 
 class AgentReActStep(BaseModel):

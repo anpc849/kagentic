@@ -402,6 +402,29 @@ class CodeAgent:
         if tool_name == "final_answer":
             raw_answer = args.get("answer", step.action.arguments)
             final_tool = self._tool_map["final_answer"]
+
+            # --- Attempt 1 (eager): flat-spread args ---
+            # Some weaker LLMs call final_answer({"answer": "x", "explanation": "y"})
+            # — spreading the schema fields as sibling top-level arguments — instead
+            # of nesting the whole struct as a JSON string under "answer".
+            # Detect this early: if args has MORE than just an "answer" key AND a
+            # response_format is set, try treating args itself as the structured payload
+            # before we even attempt to parse the bare "answer" string value.
+            first_exc: Optional[Exception] = None
+            if self.response_format is not None and isinstance(args, dict) and len(args) > 1:
+                try:
+                    parsed = final_tool.parse_answer(_json.dumps(args))
+                    self._log("  ℹ️  Accepted structured output from flat args dict (auto-recovered).")
+                    return StepResult(
+                        tool_name="final_answer",
+                        output=_json.dumps(args),
+                        is_final=True,
+                        parsed=parsed,
+                    )
+                except Exception as exc:
+                    first_exc = exc  # save; continue to standard parse
+
+            # --- Attempt 2 (standard): parse the "answer" string value ---
             try:
                 parsed = final_tool.parse_answer(str(raw_answer))
                 return StepResult(
@@ -410,27 +433,25 @@ class CodeAgent:
                     is_final=True,
                     parsed=parsed,
                 )
-            except ValueError as parse_err:
-                # Parse failed → send correction back as an observation so the
-                # LLM retries.  Re-uses the existing tool_actor feedback path.
-                
-                # Fetch the compact schema hint we generated earlier
-                schema_hint = final_tool._build_schema_hint(self.response_format)
-                
-                correction = (
-                    f"Your final_answer was rejected because the 'answer' value "
-                    f"did not match the required JSON schema.\n"
-                    f"Error: {parse_err}\n"
-                    f"Please call final_answer again with a properly JSON-encoded "
-                    f"object matching this schema: {schema_hint}\n"
-                    f"Example: {{\"answer\": \"{schema_hint}\"}}"
-                )
-                self._log(f"  ⚠️  response_format parse failed — requesting retry.")
-                return StepResult(
-                    tool_name="final_answer",
-                    output=correction,
-                    is_final=False,
-                )
+            except ValueError as exc:
+                first_exc = exc
+
+            # --- All attempts failed → send correction feedback ---
+            schema_hint = final_tool._build_schema_hint(self.response_format)
+            correction = (
+                f"Your final_answer was rejected because the 'answer' value "
+                f"did not match the required JSON schema.\n"
+                f"Error: {first_exc}\n"
+                f"Please call final_answer again with a properly JSON-encoded "
+                f"object matching this schema: {schema_hint}\n"
+                f"Example: {{\"answer\": \"{schema_hint}\"}}"
+            )
+            self._log(f"  ⚠️  response_format parse failed — requesting retry.")
+            return StepResult(
+                tool_name="final_answer",
+                output=correction,
+                is_final=False,
+            )
 
         tool = self._tool_map.get(tool_name)
         if tool is None:
