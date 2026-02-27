@@ -1,5 +1,5 @@
 """
-kagents/tools/python_runner.py
+kagentic/tools/python_runner.py
 ------------------------------
 Built-in tool that lets the agent execute Python code snippets.
 Relies on kbench.tools.python.script_runner which is available in every
@@ -9,8 +9,8 @@ The tool runs the code in an isolated subprocess and returns stdout + stderr.
 """
 from __future__ import annotations
 
-from kagents.tools.base import Tool
-from kagents.types import ToolInput
+from kagentic.tools.base import Tool
+from kagentic.types import ToolInput
 
 
 class PythonCodeRunnerTool(Tool):

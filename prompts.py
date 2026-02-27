@@ -1,7 +1,7 @@
 """
-kagents/prompts.py
+kagentic/prompts.py
 -----------------
-Prompt templates for the kagents ReAct loop.
+Prompt templates for the kagentic ReAct loop.
 
 The system prompt injects:
   - The ReAct THOUGHT → ACTION → OBSERVATION pattern
@@ -13,10 +13,10 @@ Keeping this in one place makes it easy to tune for different LLMs.
 from __future__ import annotations
 
 import json
-from typing import List, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from kagents.tools.base import Tool
+    from kagentic.tools.base import Tool
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +41,8 @@ Every response MUST be a valid JSON object matching this schema:
 3. When you have a complete answer, use action.name = "final_answer" and action.arguments = {{"answer": "<your answer>"}}.
 4. NEVER output plain text outside of the JSON structure.
 5. Use the tool results (provided as "Observation:") to decide your next step.
+6. When a **Structured Output Schema** section is present below, the value of
+   action.arguments.answer MUST be a JSON-encoded object matching that schema exactly.
 
 ## Available tools
 {tool_descriptions}
@@ -96,7 +98,11 @@ def _format_tool(tool: "Tool") -> str:
     )
 
 
-def build_system_prompt(tools: List["Tool"], additional_instructions: str = "") -> str:
+def build_system_prompt(
+    tools: List["Tool"],
+    additional_instructions: str = "",
+    response_format: Optional[Any] = None,
+) -> str:
     """
     Build the full system prompt with all tool descriptions injected.
 
@@ -104,6 +110,9 @@ def build_system_prompt(tools: List["Tool"], additional_instructions: str = "") 
         tools: All tools available to the agent (including FinalAnswerTool).
         additional_instructions: Extra instructions appended to the system prompt
             (e.g. domain-specific rules, output format requirements).
+        response_format: Optional Pydantic BaseModel subclass. When provided,
+            the model's JSON schema is embedded in the system prompt so the LLM
+            knows to produce a matching JSON object inside ``final_answer.answer``.
 
     Returns:
         A complete system-instruction string ready to pass to kbench.chats.new().
@@ -112,7 +121,43 @@ def build_system_prompt(tools: List["Tool"], additional_instructions: str = "") 
     prompt = _SYSTEM_PROMPT_TEMPLATE.format(tool_descriptions=tool_descriptions)
     if additional_instructions and additional_instructions.strip():
         prompt += f"\n## Additional Instructions\n{additional_instructions.strip()}\n"
+    if response_format is not None:
+        prompt += _build_response_format_section(response_format)
     return prompt
+
+
+def _build_response_format_section(model_cls: Any) -> str:
+    """
+    Build a section that tells the LLM the exact JSON schema it must output
+    inside ``final_answer.answer`` when ``response_format`` is set.
+    """
+    # Prefer Pydantic v2 model_json_schema(), fall back to v1 schema()
+    if hasattr(model_cls, "model_json_schema"):
+        schema = model_cls.model_json_schema()
+    elif hasattr(model_cls, "schema"):
+        schema = model_cls.schema()
+    else:
+        # Dataclass or plain class: best-effort via field introspection
+        import dataclasses
+        if dataclasses.is_dataclass(model_cls):
+            schema = {
+                "type": "object",
+                "properties": {
+                    f.name: {"type": "string", "description": f.name}
+                    for f in dataclasses.fields(model_cls)
+                },
+            }
+        else:
+            schema = {"type": "object", "description": str(model_cls)}
+
+    schema_str = json.dumps(schema, indent=2)
+    return (
+        f"\n## Structured Output Schema\n"
+        f"Your final answer MUST be a JSON object that strictly follows this schema.\n"
+        f"When calling `final_answer`, set `answer` to a JSON-encoded string of this object.\n\n"
+        f"```json\n{schema_str}\n```\n"
+        f"\nDo NOT include any text outside this JSON object in the `answer` value.\n"
+    )
 
 
 def build_task_prompt(task: str) -> str:

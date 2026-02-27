@@ -1,11 +1,11 @@
 """
-kagents/__init__.py
+kagentic/__init__.py
 ------------------
-Public API surface for the kagents package.
+Public API surface for the kagentic package.
 
 Quick start:
 
-    from kagents import CodeAgent, Tool, Document
+    from kagentic import CodeAgent, Tool, Document
 
     class MyTool(Tool):
         name = "my_tool"
@@ -20,16 +20,17 @@ Quick start:
     answer = agent.run("Do something useful.")
 """
 
-from kagents.agent import CodeAgent
-from kagents.memory import AgentMemory
-from kagents.prompts import build_system_prompt, build_task_prompt
-from kagents.schema import AgentReActStep
-from kagents.tools.base import Tool
-from kagents.tools.final_answer import FinalAnswerTool
-from kagents.tools.python_runner import PythonCodeRunnerTool
-from kagents.tools.web_browse import WebBrowseTool
-from kagents.tools.web_search import WebSearchTool
-from kagents.types import Document, StepResult, ToolInput
+from kagentic.agent import CodeAgent
+from kagentic.memory import AgentMemory
+from kagentic.prompts import build_system_prompt, build_task_prompt
+from kagentic.schema import AgentReActStep
+from kagentic.tools.agent_tool import AgentTool
+from kagentic.tools.base import Tool
+from kagentic.tools.final_answer import FinalAnswerTool
+from kagentic.tools.python_runner import PythonCodeRunnerTool
+from kagentic.tools.web_browse import WebBrowseTool
+from kagentic.tools.web_search import WebSearchTool
+from kagentic.types import Document, StepResult, ToolInput
 
 __all__ = [
     # Agent
@@ -43,6 +44,7 @@ __all__ = [
     # Memory
     "AgentMemory",
     # Tools
+    "AgentTool",
     "Tool",
     "FinalAnswerTool",
     "PythonCodeRunnerTool",
@@ -52,3 +54,4 @@ __all__ = [
     "build_system_prompt",
     "build_task_prompt",
 ]
+

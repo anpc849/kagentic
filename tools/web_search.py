@@ -1,5 +1,5 @@
 """
-kagents/tools/web_search.py
+kagentic/tools/web_search.py
 --------------------------
 WebSearchTool: search the web and return result snippets + URLs.
 
@@ -14,8 +14,8 @@ from __future__ import annotations
 import urllib.parse
 from typing import List
 
-from kagents.tools.base import Tool
-from kagents.types import ToolInput
+from kagentic.tools.base import Tool
+from kagentic.types import ToolInput
 
 _LITE_URL = "https://lite.duckduckgo.com/lite/"
 _HEADERS = {

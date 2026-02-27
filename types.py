@@ -1,7 +1,7 @@
 """
-kagents/types.py
+kagentic/types.py
 ---------------
-Core data types for the kagents framework.
+Core data types for the kagentic framework.
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
@@ -12,7 +12,7 @@ class Document:
     """
     A document with text content and optional metadata.
     Matches the LangChain-style Document interface so existing
-    loaders / splitters work with kagents out of the box.
+    loaders / splitters work with kagentic out of the box.
     """
     page_content: str
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -36,7 +36,15 @@ class ToolInput:
 class StepResult:
     """
     Result of one ReAct loop iteration.
+
+    Fields:
+        tool_name:  Name of the tool that was called.
+        output:     Raw string output from the tool.
+        is_final:   True when tool_name == "final_answer".
+        parsed:     Populated by FinalAnswerTool.parse_answer() when
+                    response_format is set; None otherwise.
     """
     tool_name: str
     output: str
-    is_final: bool                   # True when tool_name == "final_answer"
+    is_final: bool
+    parsed: Any = None

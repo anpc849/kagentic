@@ -1,46 +1,39 @@
 """
-kagents/memory.py
+kagentic/memory.py
 ----------------
 AgentMemory is NOT responsible for tracking conversation history —
 kbench.chats.new() does that automatically inside a single context.
 
 AgentMemory's two jobs:
-  1. Step logging  — keep a human-readable trace for debugging
-  2. Summarization — when the context grows too large, compress the entire
-     orchestrator chat into a short summary string and signal the agent to
-     open a fresh kbench.chats.new() seeded with that summary.
+  1. Step counting  — track how many steps have been executed so
+     should_compress() can fire at the right time.
+  2. Summarization — when the step count crosses the threshold, the agent
+     sends a plain summary request to the LLM (the chat itself already
+     carries full context, so no step log is needed) and opens a fresh
+     kbench.chats.new() seeded with that summary.
 """
 from __future__ import annotations
-
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Optional
-
-if TYPE_CHECKING:
-    from kagents.schema import AgentReActStep
-    from kagents.types import StepResult
-
-
-@dataclass
-class StepLog:
-    step: int
-    thought: Optional[str]
-    tool_name: str
-    tool_arguments: dict
-    observation: str
 
 
 class AgentMemory:
     """
-    Lightweight step-level memory for a single agent run.
+    Lightweight step counter + compression trigger for a single agent run.
 
-    Usage inside the ReAct loop:
+    Usage inside the ReAct loop::
+
         memory = AgentMemory(compress_threshold=10)
         ...
-        memory.log_step(step_idx, agent_step, result)
+        memory.increment()
         if memory.should_compress():
-            summary = memory.summarize(model)
-            # caller opens a new kbench.chats.new seeded with summary
+            # ask LLM to summarize (the chat already has full context)
+            # caller opens a new kbench.chats.new seeded with the summary
     """
+
+    SUMMARY_PROMPT = (
+        "Please write a concise summary of all the work done so far in this session. "
+        "Include: what tasks were completed, key findings, files written, and any "
+        "important context the next session should know about."
+    )
 
     def __init__(self, compress_threshold: int = 0):
         """
@@ -49,30 +42,28 @@ class AgentMemory:
                 True. Set to 0 (default) to disable auto-compression.
         """
         self.compress_threshold = compress_threshold
-        self._logs: List[StepLog] = []
+        self._step_count: int = 0
 
     # ------------------------------------------------------------------
-    # Step logging
+    # Step counting
     # ------------------------------------------------------------------
-    def log_step(self, step: int, agent_step: "AgentReActStep", result: "StepResult") -> None:
-        """Record one completed ReAct step."""
-        self._logs.append(
-            StepLog(
-                step=step,
-                thought=agent_step.thought,
-                tool_name=agent_step.action.name,
-                tool_arguments={"arguments": agent_step.action.arguments},
-                observation=result.output,
-            )
-        )
+    def increment(self) -> None:
+        """Record that one ReAct step completed."""
+        self._step_count += 1
 
     @property
     def step_count(self) -> int:
-        return len(self._logs)
+        return self._step_count
 
-    @property
-    def logs(self) -> List[StepLog]:
-        return list(self._logs)
+    def reset(self) -> None:
+        """Reset the step counter after a compression cycle.
+
+        Must be called by the agent after it captures the summary and before
+        opening the next kbench.chats.new() window.  Without this reset,
+        should_compress() would fire again on the very first step of the new
+        window (because the old count still satisfies the modulo check).
+        """
+        self._step_count = 0
 
     # ------------------------------------------------------------------
     # Context compression
@@ -81,24 +72,7 @@ class AgentMemory:
         """Return True when it's time to compress the orchestrator chat."""
         if self.compress_threshold <= 0:
             return False
-        return self.step_count > 0 and self.step_count % self.compress_threshold == 0
-
-    def build_summary_prompt(self) -> str:
-        """
-        Build a prompt asking the LLM to summarize the work done so far.
-        The caller sends this inside the *existing* orchestrator chat before
-        closing it so the summary captures full context.
-        """
-        log_text = "\n".join(
-            f"Step {log.step}: [{log.tool_name}] → {log.observation[:300]}"
-            for log in self._logs
-        )
-        return (
-            "Please write a concise summary of all the work done so far in this session. "
-            "Include: what tasks were completed, key findings, files written, and any "
-            "important context the next session should know about.\n\n"
-            f"Step log:\n{log_text}"
-        )
+        return self._step_count > 0 and self._step_count % self.compress_threshold == 0
 
     def format_summary_as_context(self, summary: str) -> str:
         """Wrap summary for use as the first user message in a new chat."""

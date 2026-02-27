@@ -1,5 +1,5 @@
 """
-kagents/tools/web_browse.py
+kagentic/tools/web_browse.py
 --------------------------
 WebBrowseTool: fetch and read the text content of any URL.
 
@@ -14,8 +14,8 @@ from __future__ import annotations
 import textwrap
 import urllib.parse
 
-from kagents.tools.base import Tool
-from kagents.types import ToolInput
+from kagentic.tools.base import Tool
+from kagentic.types import ToolInput
 
 _HEADERS = {
     "User-Agent": (

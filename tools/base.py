@@ -1,7 +1,7 @@
 """
-kagents/tools/base.py
+kagentic/tools/base.py
 --------------------
-Abstract base class for all kagents tools.
+Abstract base class for all kagentic tools.
 
 To create a custom tool, subclass Tool and:
   1. Set class attributes: name, description, inputs, output_type
@@ -23,12 +23,12 @@ from __future__ import annotations
 
 from typing import Dict
 
-from kagents.types import ToolInput
+from kagentic.types import ToolInput
 
 
 class Tool:
     """
-    Base class for all kagents tools.
+    Base class for all kagentic tools.
 
     Class-level attributes (set these in subclasses):
         name        – unique snake_case identifier used by the LLM
