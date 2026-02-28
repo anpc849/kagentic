@@ -494,13 +494,20 @@ class CodeAgent:
     # LLM call wrappers (with retry)
     # ------------------------------------------------------------------
     def _safe_prompt(self, message: str, retries: int = 3) -> Optional[AgentReActStep]:
-        """llm.prompt() the first message; retry on failure.
-        llm.prompt() returns T directly (already calls .content internally).
+        """Send the first user message and parse the LLM's response.
+
+        On parse failure (e.g. LLM outputs plain text instead of JSON), injects
+        a format correction into the conversation and retries via respond() —
+        since the original message is already in kbench's history, calling
+        prompt() again would duplicate it.
         """
         for attempt in range(retries):
             try:
-                result = self.model.prompt(message, schema=AgentReActStep)
-                # llm.prompt() returns T, but guard defensively
+                if attempt == 0:
+                    result = self.model.prompt(message, schema=AgentReActStep)
+                else:
+                    # Message already sent; just ask the LLM to respond again
+                    result = self.model.respond(schema=AgentReActStep)
                 if isinstance(result, AgentReActStep):
                     return result
                 if hasattr(result, "content"):
@@ -508,18 +515,20 @@ class CodeAgent:
                 return result
             except Exception as e:
                 self._log(f"  ⚠️  llm.prompt() attempt {attempt+1}/{retries} failed: {e}")
+                if attempt < retries - 1:
+                    self._inject_format_correction()
         return None
 
     def _safe_respond(self, retries: int = 3) -> Optional[AgentReActStep]:
-        """llm.respond() for subsequent turns; retry on failure.
-        IMPORTANT: llm.respond() returns Message[T], not T directly.
-        We must extract .content to get the parsed AgentReActStep.
-        (Same issue as complemon/main.py: 'response if isinstance(response, AgentResponse) else response.content')
+        """Ask the LLM for the next step; parse and return it.
+
+        On parse failure, injects a JSON format correction into the conversation
+        before retrying so the LLM sees its mistake and corrects the format,
+        rather than repeating the same plain-text response.
         """
         for attempt in range(retries):
             try:
                 result = self.model.respond(schema=AgentReActStep)
-                # llm.respond() returns Message[T] — extract the parsed content
                 if isinstance(result, AgentReActStep):
                     return result
                 if hasattr(result, "content"):
@@ -527,7 +536,31 @@ class CodeAgent:
                 return result
             except Exception as e:
                 self._log(f"  ⚠️  llm.respond() attempt {attempt+1}/{retries} failed: {e}")
+                if attempt < retries - 1:
+                    self._inject_format_correction()
         return None
+
+    # ---- format-correction helper ----------------------------------------
+
+    _FORMAT_CORRECTION = (
+        "⚠️  FORMAT ERROR: Your last response was not valid JSON. "
+        "You MUST respond with a JSON object matching the required schema — "
+        "do NOT write plain text or prose. "
+        'Output ONLY a JSON object, e.g.: '
+        '{"thought": "...", "action": {"name": "<tool>", "arguments": {<args>}}}'
+    )
+
+    def _inject_format_correction(self) -> None:
+        """Push a JSON-format reminder into the active kbench conversation.
+
+        Called between retry attempts when the LLM outputs plain text instead
+        of the required JSON schema.  The correction appears as a tool
+        observation so the LLM sees it in the next respond() call.
+        """
+        try:
+            self.tool_actor.send(self._FORMAT_CORRECTION)
+        except Exception:
+            pass  # best-effort; don't let a send failure mask the real error
 
     # ------------------------------------------------------------------
     # Logging

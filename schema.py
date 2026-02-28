@@ -15,9 +15,15 @@ Solution: nest ToolCall inside AgentReActStep so $defs is always present,
 exactly like complemon's AgentResponse + ToolCall design.
 """
 import json as _json
+import re as _re
 from typing import Any, Dict, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
+
+try:
+    from json_repair import loads as _json_repair_loads
+except ImportError:
+    _json_repair_loads = None  # type: ignore[assignment]
 
 
 class ToolCall(BaseModel):
@@ -73,6 +79,72 @@ class AgentReActStep(BaseModel):
     action: ToolCall = Field(
         description="The tool call to execute this step."
     )
+
+    # ------------------------------------------------------------------
+    # Robust JSON parsing (called by kbench on every raw LLM response)
+    # ------------------------------------------------------------------
+    @classmethod
+    def model_validate_json(
+        cls,
+        json_data: "Union[str, bytes, bytearray]",
+        **kwargs: Any,
+    ) -> "AgentReActStep":
+        """Parse the LLM's raw response with a json_repair fallback waterfall.
+
+        kbench calls this method on every raw response string it receives from
+        the LLM.  Overriding it here lets us handle the two most common
+        failure modes transparently, without touching kbench or agent.py:
+
+        Strategy 1 — strict Pydantic ``model_validate_json`` (fast path).
+            Works for any model that outputs well-formed JSON.
+
+        Strategy 2 — ``json_repair.loads()`` + ``model_validate``.
+            Fixes the most common real-world failure: a long ``thought`` value
+            that contains literal newlines (``\\n``) or other control chars
+            (\\u0000-\\u001F) that are valid in JSON *values* only when escaped
+            as ``\\\\n``.  json_repair re-escapes them automatically.
+            Also handles single-quoted dicts, trailing commas, etc.
+
+        Strategy 3 — regex JSON-block extraction + json_repair.
+            When the LLM outputs plain prose (e.g. forgetting the required
+            schema entirely), we scan for the outermost ``{...}`` block that
+            contains an ``"action"`` key and try to parse that slice.
+        """
+        raw = json_data if isinstance(json_data, str) else json_data.decode()
+
+        # Strategy 1: strict (fast path — most models most of the time)
+        try:
+            return super().model_validate_json(raw, **kwargs)
+        except Exception:
+            pass
+
+        # Strategy 2: json_repair for malformed-but-close JSON
+        if _json_repair_loads is not None:
+            try:
+                data = _json_repair_loads(raw)
+                if isinstance(data, dict) and "action" in data:
+                    return cls.model_validate(data)
+            except Exception:
+                pass
+
+        # Strategy 3: extract JSON block from plain-text response
+        try:
+            # Find the first '{' that is followed (somewhere) by an "action" key.
+            match = _re.search(r'\{', raw)
+            if match:
+                candidate = raw[match.start():]
+                if _json_repair_loads is not None:
+                    data = _json_repair_loads(candidate)
+                else:
+                    data = _json.loads(candidate)
+                if isinstance(data, dict) and "action" in data:
+                    return cls.model_validate(data)
+        except Exception:
+            pass
+
+        # All strategies exhausted — re-raise via the original path so the
+        # caller (kbench / _safe_prompt retry loop) sees a clean exception.
+        return super().model_validate_json(raw, **kwargs)
 
     # ------------------------------------------------------------------
     # kbench UI rendering
