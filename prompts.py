@@ -31,25 +31,25 @@ Every response MUST be a valid JSON object matching this schema:
   "thought": "<optional: your internal reasoning (not shown to user)>",
   "action": {{
     "name": "<name of the tool to call>",
-    "arguments": "<JSON-encoded arguments string, e.g. {{\\"query\\": \\"hello\\"}}>" 
+    "arguments": {{<arguments as a real JSON object — no escaping, no quotes around the object>}}
   }}
 }}
 
 ## Rules
 1. Think step-by-step in "thought" before choosing a tool.
 2. Call exactly ONE tool per response.
-3. When you have a complete answer, use action.name = "final_answer" and action.arguments = {{"answer": "<your answer>"}}.
+3. When you have a complete answer, use action.name = "final_answer" and pass your answer fields directly in action.arguments as a JSON object.
 4. NEVER output plain text outside of the JSON structure.
 5. Use the tool results (provided as "Observation:") to decide your next step.
-6. When a **Structured Output Schema** section is present below, the value of
-   action.arguments.answer MUST be a JSON-encoded object matching that schema exactly.
+6. When a **Structured Output Schema** section is present below, spread ALL schema fields directly inside action.arguments — do not nest them under an extra key.
 
 ## Available tools
 {tool_descriptions}
 
 ## Important
 - Only use one of the tool names listed above.
-- action.arguments must be a valid JSON string.
+- action.arguments MUST be a plain JSON object (dict), for example: {{"query": "hello world"}}
+- Do NOT wrap arguments in a string with backslashes — output them as a real nested JSON object.
 - If a tool call fails, read the error carefully and try a corrected call.
 """
 
@@ -129,7 +129,7 @@ def build_system_prompt(
 def _build_response_format_section(model_cls: Any) -> str:
     """
     Build a section that tells the LLM the exact JSON schema it must output
-    inside ``final_answer.answer`` when ``response_format`` is set.
+    as a native JSON object spread directly inside ``action.arguments``.
     """
     # Prefer Pydantic v2 model_json_schema(), fall back to v1 schema()
     if hasattr(model_cls, "model_json_schema"):
@@ -150,13 +150,25 @@ def _build_response_format_section(model_cls: Any) -> str:
         else:
             schema = {"type": "object", "description": str(model_cls)}
 
+    # Build a concrete example from schema field names
+    props = schema.get("properties", {})
+    example_fields = ", ".join(
+        f'"{k}": "<{v.get("description", v.get("type", k))}>"'
+        for k, v in props.items()
+    )
+    example = f"{{{example_fields}}}" if example_fields else '{"answer": "<your answer>"}'
+
     schema_str = json.dumps(schema, indent=2)
     return (
         f"\n## Structured Output Schema\n"
-        f"Your final answer MUST be a JSON object that strictly follows this schema.\n"
-        f"When calling `final_answer`, set `answer` to a JSON-encoded string of this object.\n\n"
+        f"When calling `final_answer`, spread ALL of the following fields directly "
+        f"inside `action.arguments` as a plain JSON object (no wrapping, no extra keys).\n\n"
         f"```json\n{schema_str}\n```\n"
-        f"\nDo NOT include any text outside this JSON object in the `answer` value.\n"
+        f"\nExample call:\n"
+        f"```json\n"
+        f'{{"action": {{"name": "final_answer", "arguments": {example}}}}}\n'
+        f"```\n"
+        f"Do NOT wrap the fields in a string — output them as a real JSON object.\n"
     )
 
 

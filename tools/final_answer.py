@@ -88,17 +88,17 @@ class FinalAnswerTool(Tool):
 
         self.description = (
             f"Use this tool when you have a complete answer for the user. "
-            f"⚠️  STRUCTURED OUTPUT REQUIRED: the 'answer' value MUST be a "
-            f"JSON-encoded {model_cls.__name__} object matching this schema: "
-            f"{schema_hint}. "
-            f'Example: {{"answer": "{schema_hint}"}}'
+            f"⚠️  STRUCTURED OUTPUT REQUIRED: spread ALL {model_cls.__name__} fields "
+            f"directly into action.arguments as a plain JSON object: {schema_hint}. "
+            f"Do NOT wrap them in a string or nest under an 'answer' key."
         )
         self.inputs["answer"].description = (
-            f"A JSON-encoded {model_cls.__name__} object. "
+            f"Pass ALL {model_cls.__name__} fields as direct JSON object keys. "
             f"Required fields: {schema_hint}. "
-            f"Do NOT wrap in extra quotes — output raw JSON, e.g. "
-            f'{{"city": "Tokyo", "condition": "Sunny", "temperature_c": 28}}.'
+            f"Example: spread fields directly — "
+            f"do NOT use a nested 'answer' string key."
         )
+
 
     def parse_answer(self, raw: str) -> Any:
         """

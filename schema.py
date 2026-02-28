@@ -14,7 +14,8 @@ Key trick (same as complemon/agent/schemas.py):
 Solution: nest ToolCall inside AgentReActStep so $defs is always present,
 exactly like complemon's AgentResponse + ToolCall design.
 """
-from typing import Any, Optional
+import json as _json
+from typing import Any, Dict, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -27,27 +28,30 @@ class ToolCall(BaseModel):
             "Use 'final_answer' when you have a complete answer for the user."
         )
     )
-    arguments: str = Field(
+    arguments: Union[Dict[str, Any], str] = Field(
         default="{}",
         description=(
-            "Arguments to pass to the tool, as a JSON-encoded string. "
+            "Arguments to pass to the tool as a JSON object (native dict, no escaping needed). "
             'Example: {"query": "hello world"}. '
-            'For \'final_answer\', use: {"answer": "<your complete answer>"}.'
+            'For \'final_answer\' without structured output, use: {"answer": "<your complete answer>"}. '
+            'For \'final_answer\' with structured output, spread all schema fields here directly: '
+            '{"answer": "short answer", "explanation": "reasoning here"}.'
         ),
     )
 
     @field_validator("arguments", mode="before")
     @classmethod
     def _coerce_arguments(cls, v: Any) -> Any:
-        """Auto-serialize dict/list arguments to a JSON string.
+        """Normalize arguments to a compact JSON string for internal use.
 
-        Some weaker LLMs emit ``arguments`` as a native JSON object
-        (dict) instead of a JSON-encoded string, triggering a Pydantic
-        ``string_type`` error.  This validator silently converts the
-        dict to a compact JSON string so parsing succeeds without a
-        retry.
+        Accepts either:
+        - A native dict/list (preferred, no escaping needed) — serialized to JSON string.
+        - A JSON-encoded string — passed through as-is (json_repair handles malformed cases).
+
+        This means the LLM can freely output arguments as a real JSON object
+        (e.g. ``{"query": "hello", "topk": 3}``) without any backslash escaping,
+        saving tokens and eliminating escape-related parse failures.
         """
-        import json as _json
         if isinstance(v, (dict, list)):
             return _json.dumps(v)
         return v
