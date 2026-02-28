@@ -514,7 +514,10 @@ class CodeAgent:
                     return result.content
                 return result
             except Exception as e:
-                self._log(f"  ⚠️  llm.prompt() attempt {attempt+1}/{retries} failed: {e}")
+                # Commented out: kbench exception includes full Input Value (raw LLM text) → very noisy.
+                # _inject_format_correction already handles feedback via tool_actor.send.
+                # self._log(f"  ⚠️  llm.prompt() attempt {attempt+1}/{retries} failed: {e}")
+                self._log(f"  ⚠️  llm.prompt() attempt {attempt+1}/{retries} failed: response parse error")
                 if attempt < retries - 1:
                     self._inject_format_correction()
         return None
@@ -535,7 +538,10 @@ class CodeAgent:
                     return result.content
                 return result
             except Exception as e:
-                self._log(f"  ⚠️  llm.respond() attempt {attempt+1}/{retries} failed: {e}")
+                # Commented out: kbench exception includes full Input Value (raw LLM text) → very noisy.
+                # _inject_format_correction already handles feedback via tool_actor.send.
+                # self._log(f"  ⚠️  llm.respond() attempt {attempt+1}/{retries} failed: {e}")
+                self._log(f"  ⚠️  llm.respond() attempt {attempt+1}/{retries} failed: response parse error")
                 if attempt < retries - 1:
                     self._inject_format_correction()
         return None
